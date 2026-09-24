@@ -363,7 +363,7 @@ class DeploymentService:
             with self._lock:
                 if self._stopping.is_set() or self._cancel.is_set():
                     return
-                self.db.update_deployment(phase="connecting", message="Đang mở SSH tunnel")
+                self.db.update_deployment(phase="connecting", message="Đang mở SSH tunnel", error=None)
                 host, ssh_port = self._ssh_endpoint(instance)
                 local_port = self.tunnel.connect(host, ssh_port)
                 if self._stopping.is_set() or self._cancel.is_set():
@@ -371,7 +371,7 @@ class DeploymentService:
             with self._lock:
                 if self._stopping.is_set() or self._cancel.is_set():
                     return
-                self.db.update_deployment(phase="loading_model", message="Đang chờ vLLM tải model")
+                self.db.update_deployment(phase="loading_model", message="Đang chờ vLLM tải model", error=None)
             for _ in range(self.max_polls * 2):
                 if self._stopping.is_set() or self._cancel.is_set():
                     return
