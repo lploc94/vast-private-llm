@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 
 class SSHKeyError(RuntimeError):
@@ -149,17 +150,30 @@ class SSHKeyManager:
             raise SSHKeyError("Thư mục SSH key không an toàn; cần quyền 0700")
         return self._read_pair(self.managed_path, managed=True)
 
-    def remove_managed_key(self, expected_public_key: str) -> None:
+    def _managed_pair_for_removal(self) -> SSHIdentity:
         identity = self.managed_identity()
         if identity is None:
             raise SSHKeyError("Không còn SSH key do ứng dụng quản lý")
-        if public_key_material(identity.public_key) != public_key_material(expected_public_key):
-            raise SSHKeyError("SSH key local đã thay đổi; chưa xóa file")
         public_path = Path(f"{self.managed_path}.pub")
         try:
             names = {entry.name for entry in self.managed_dir.iterdir()}
-            if names != {self.managed_path.name, public_path.name}:
-                raise SSHKeyError("Thư mục SSH key có file khác; chưa xóa file")
+        except OSError as exc:
+            raise SSHKeyError("Không đọc được thư mục SSH key") from exc
+        if names != {self.managed_path.name, public_path.name}:
+            raise SSHKeyError("Thư mục SSH key có file khác; chưa xóa file")
+        return identity
+
+    def revoke_managed_key(self, revoke_remote: Callable[[str], None]) -> None:
+        identity = self._managed_pair_for_removal()
+        revoke_remote(identity.public_key)
+        try:
+            current = self._managed_pair_for_removal()
+        except SSHKeyError as exc:
+            raise SSHKeyError("Vast đã gỡ SSH key nhưng chưa thể kiểm tra lại key local") from exc
+        if public_key_material(current.public_key) != public_key_material(identity.public_key):
+            raise SSHKeyError("Vast đã gỡ SSH key nhưng SSH key local đã thay đổi")
+        public_path = Path(f"{self.managed_path}.pub")
+        try:
             self.managed_path.unlink()
             public_path.unlink()
             self.managed_dir.rmdir()
