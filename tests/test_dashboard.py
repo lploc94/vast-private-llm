@@ -16,7 +16,7 @@ def test_dashboard_starts_without_vast_credentials_and_creates_local_session(tmp
         assert page.status_code == 200
         assert "Deploy" in page.text
         assert "API Keys" in page.text
-        assert "Settings" in page.text
+        assert "Integration" in page.text
         assert client.get("/login", follow_redirects=False).status_code == 303
         csrf = client.get("/api/admin/session").json()["csrf_token"]
         assert client.get("/api/admin/state").json()["phase"] == "idle"
