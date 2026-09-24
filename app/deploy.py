@@ -11,8 +11,9 @@ from app.config import mask_vast_api_key
 from app.db import Database
 from app.inference import InferenceProxy
 from app.models import ModelCatalog, QWEN38_API_MODEL_ID, QWEN38_MODEL_ID
+from app.ssh_keys import SSHKeyError, SSHKeyManager
 from app.tunnel import TunnelManager
-from app.vast import VastClient
+from app.vast import VastClient, VastError
 
 
 def _health_check(port: int, model_id: str) -> bool:
@@ -40,6 +41,7 @@ class DeploymentService:
         sleep: Callable[[float], None] = time.sleep,
         max_polls: int = 180,
         vast_api_key: str | None = None,
+        ssh_key_manager: SSHKeyManager | None = None,
     ) -> None:
         self.db = db
         self.vast = vast
@@ -47,6 +49,7 @@ class DeploymentService:
         self.tunnel = tunnel
         self.proxy = proxy
         self.ssh_key_path = ssh_key_path.expanduser()
+        self.ssh_key_manager = ssh_key_manager
         self.health_check = health_check
         self.spawn = spawn or self._spawn_thread
         self.sleep = sleep
@@ -138,7 +141,7 @@ class DeploymentService:
     ) -> dict[str, object]:
         self.catalog.validate(model_id, min_vram_gb, disk_gb)
         self._require_vast()
-        if not self.ssh_key_path.is_file():
+        if self.ssh_key_manager is None and not self.ssh_key_path.is_file():
             raise ValueError("Không tìm thấy SSH private key; cấu hình VASTLLM_SSH_KEY_PATH")
         with self._lock:
             if self._worker_active:
@@ -171,7 +174,28 @@ class DeploymentService:
         disk_gb: int, operation_id: str, price_hour: float,
     ) -> None:
         vast = self._require_vast()
+        if self.ssh_key_manager is not None:
+            try:
+                self.db.update_deployment(message="Đang chuẩn bị SSH key")
+                identity = self.ssh_key_manager.ensure_local_key()
+                vast.ensure_ssh_key(identity.public_key)
+            except (SSHKeyError, VastError) as exc:
+                self.db.update_deployment(
+                    phase="error", message="Không chuẩn bị được SSH key; chưa thuê máy",
+                    error=str(exc), operation_id=None,
+                )
+                return
+            except Exception as exc:
+                self.db.update_deployment(
+                    phase="error", message="Không chuẩn bị được SSH key; chưa thuê máy",
+                    error=f"Lỗi SSH key ({type(exc).__name__})", operation_id=None,
+                )
+                return
+            if self._stopping.is_set() or self._cancel.is_set():
+                return
+
         try:
+            self.db.update_deployment(message="Đang kiểm tra lại offer Vast")
             fresh = vast.search_offers(min_vram_gb, disk_gb)
             current = next((row for row in fresh if int(row["id"]) == offer_id), None)
             if current is None or float(current["price_hour"]) != price_hour:
@@ -182,6 +206,7 @@ class DeploymentService:
                 return
             if self._stopping.is_set() or self._cancel.is_set():
                 return
+            self.db.update_deployment(message="Đang thuê máy Vast")
         except Exception as exc:
             self.db.update_deployment(
                 phase="error", message="Không kiểm tra lại được offer", error=str(exc), operation_id=None

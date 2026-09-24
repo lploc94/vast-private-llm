@@ -10,7 +10,7 @@ from app.db import Database
 from app.deploy import DeploymentService
 from app.inference import InferenceProxy
 from app.main import create_app
-from tests.test_deploy import QWEN38, FakeTunnel, FakeVast, service
+from tests.test_deploy import QWEN38, FakeSSHKeyManager, FakeTunnel, FakeVast, service
 
 
 MODEL = QWEN38
@@ -57,7 +57,7 @@ def test_app_startup_resumes_saved_instance_without_new_rental(tmp_path: Path) -
     app = create_app(
         Settings(data_dir=tmp_path, admin_password="a sufficiently long password", vast_api_key="fake", ssh_key_path=key_path),
         vast_client=vast, tunnel_manager=tunnel, health_check=lambda _port, _model: True,
-        spawn_worker=lambda target: target(),
+        spawn_worker=lambda target: target(), ssh_key_manager=FakeSSHKeyManager(key_path),
     )
     assert app.state.proxy.target() is None
     with TestClient(app):
@@ -96,7 +96,7 @@ def test_ssh_drop_returns_503_then_recovers(tmp_path: Path) -> None:
     app = create_app(
         Settings(data_dir=tmp_path, admin_password="a sufficiently long password", vast_api_key="fake", ssh_key_path=key_path),
         vast_client=vast, tunnel_manager=tunnel, health_check=lambda _port, _model: True,
-        spawn_worker=lambda target: target(),
+        spawn_worker=lambda target: target(), ssh_key_manager=FakeSSHKeyManager(key_path),
     )
     with TestClient(app) as client:
         csrf = client.post("/api/admin/login", json={"password": "a sufficiently long password"}).json()["csrf_token"]
@@ -119,7 +119,7 @@ def test_destroy_requires_confirmation_and_preserves_id_on_vast_failure(tmp_path
     app = create_app(
         Settings(data_dir=tmp_path, admin_password="a sufficiently long password", vast_api_key="fake", ssh_key_path=key_path),
         vast_client=vast, tunnel_manager=FakeTunnel(), health_check=lambda _port, _model: True,
-        spawn_worker=lambda target: target(),
+        spawn_worker=lambda target: target(), ssh_key_manager=FakeSSHKeyManager(key_path),
     )
     with TestClient(app) as client:
         csrf = client.post("/api/admin/login", json={"password": "a sufficiently long password"}).json()["csrf_token"]

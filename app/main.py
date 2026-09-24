@@ -1,5 +1,6 @@
 import hmac
 import ipaddress
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from app.routes.admin_keys import register_admin_key_routes
 from app.routes.deploy import register_deploy_routes
 from app.routes.settings import register_settings_routes
 from app.routes.v1 import register_v1_routes
+from app.ssh_keys import SSHKeyManager
 from app.tunnel import TunnelManager
 from app.vast import VastClient
 
@@ -36,6 +38,7 @@ def create_app(
     tunnel_manager=None,
     health_check=None,
     spawn_worker=None,
+    ssh_key_manager=None,
 ) -> FastAPI:
     settings = settings or Settings.from_env()
     db = Database(settings.data_dir)
@@ -43,15 +46,26 @@ def create_app(
     keys = KeyStore(db)
     proxy = InferenceProxy()
     vast_client = vast_client or (VastClient(api_key=settings.vast_api_key) if settings.vast_api_key else None)
-    tunnel_manager = tunnel_manager or TunnelManager(settings.data_dir, settings.ssh_key_path)
+    if ssh_key_manager is None:
+        selected_key = settings.ssh_key_path
+        state = db.deployment_state()
+        if selected_key is None and (state["instance_id"] or state["operation_id"]):
+            if not os.path.lexists(settings.data_dir / "ssh"):
+                legacy = Path.home() / ".ssh" / "id_ed25519"
+                if legacy.is_file():
+                    selected_key = legacy
+        ssh_key_manager = SSHKeyManager(settings.data_dir, selected_key)
+    ssh_key_path = ssh_key_manager.override_path or ssh_key_manager.managed_path
+    tunnel_manager = tunnel_manager or TunnelManager(settings.data_dir, ssh_key_path)
     service_kwargs = {}
     if health_check is not None:
         service_kwargs["health_check"] = health_check
     if spawn_worker is not None:
         service_kwargs["spawn"] = spawn_worker
     deployment = DeploymentService(
-        db, vast_client, tunnel_manager, proxy, settings.ssh_key_path,
-        vast_api_key=settings.vast_api_key, **service_kwargs
+        db, vast_client, tunnel_manager, proxy, ssh_key_path,
+        vast_api_key=settings.vast_api_key, ssh_key_manager=ssh_key_manager,
+        **service_kwargs
     )
 
     @asynccontextmanager

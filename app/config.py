@@ -1,7 +1,6 @@
 import os
 import tempfile
 from dataclasses import dataclass
-from dataclasses import field
 from pathlib import Path
 
 
@@ -50,7 +49,7 @@ class Settings:
     data_dir: Path
     admin_password: str | None = None
     vast_api_key: str | None = None
-    ssh_key_path: Path = field(default_factory=lambda: Path.home() / ".ssh" / "id_ed25519")
+    ssh_key_path: Path | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -59,7 +58,8 @@ class Settings:
             data_dir=data_dir,
             admin_password=os.environ.get("VASTLLM_ADMIN_PASSWORD") or None,
             vast_api_key=_vast_api_key(data_dir),
-            ssh_key_path=Path(
-                os.environ.get("VASTLLM_SSH_KEY_PATH", "~/.ssh/id_ed25519")
-            ).expanduser(),
+            ssh_key_path=(
+                Path(value).expanduser()
+                if (value := os.environ.get("VASTLLM_SSH_KEY_PATH")) else None
+            ),
         )

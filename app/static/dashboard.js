@@ -36,7 +36,7 @@ async function loadInstanceRuntime(instanceId) {
 }
 
 let lastKnownStep = 0;
-function renderProgress(phase, hasInstance) {
+function renderProgress(phase, hasInstance, message) {
   const steps = ["Thuê máy", "Khởi động", "Kết nối SSH", "Nạp model", "Sẵn sàng"];
   const stepByPhase = {
     creating: 1, create_unknown: 1, provisioning: 2, connecting: 3,
@@ -50,6 +50,8 @@ function renderProgress(phase, hasInstance) {
   else if (phase in stepByPhase) lastKnownStep = step;
 
   let label = step ? `Bước ${step}/5 · ${steps[step - 1]}` : "Chưa deploy";
+  if (phase === "creating" && message === "Đang chuẩn bị SSH key") label = "Bước 1/5 · Chuẩn bị SSH";
+  if (phase === "creating" && message === "Đang kiểm tra lại offer Vast") label = "Bước 1/5 · Kiểm tra offer";
   if (phase === "ready") label = "Sẵn sàng";
   if (phase === "create_unknown") label = "Bước 1/5 · Đối soát thuê máy";
   if (["recovering", "offline"].includes(phase)) label = "Bước 3/5 · Kết nối lại";
@@ -107,7 +109,7 @@ function renderDeployment(state) {
   };
   document.getElementById("phase").textContent = phaseLabels[state.phase] || state.phase;
   statusMessage.textContent = state.message;
-  renderProgress(state.phase, Boolean(state.instance_id));
+  renderProgress(state.phase, Boolean(state.instance_id), state.message);
   if (state.instance_id !== runtimeInstanceId) {
     runtimeInstanceId = state.instance_id;
     instanceStartedAt = null;

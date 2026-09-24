@@ -17,7 +17,7 @@ This is a **single-owner, local-only dashboard**. It does not provide a public a
 
 - Python 3.12 or newer, [uv](https://docs.astral.sh/uv/), and OpenSSH on the computer that runs the dashboard.
 - A Vast.ai account and API key. You can paste the key into the dashboard after startup.
-- An SSH key pair on this computer, with its **public** key added to your Vast.ai account. The default private-key path is `~/.ssh/id_ed25519`.
+- OpenSSH's `ssh-keygen` command. The app creates and registers a dedicated SSH key automatically before renting; you do not need to upload one manually.
 - A suitable Vast GPU offer when you choose to deploy. **Renting an instance costs money from the moment it is created, including model download/startup time.**
 
 ## Quick start
@@ -31,10 +31,9 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 8080
 
 Open <http://127.0.0.1:8080>. The dashboard opens locally without an admin password and creates a local browser session. Keep the bind address on loopback. No Vast key or GPU rental is needed to see the dashboard.
 
-1. Add your SSH public key to Vast.ai. If your private key is elsewhere, set `VASTLLM_SSH_KEY_PATH` before starting the dashboard.
-2. In **Deploy**, paste a Vast API key, search offers, and choose a machine. The key is saved locally in `data/vast_api_key` with owner-only file permissions.
-3. Wait for **Ready**, then create a user key in **API Keys**.
-4. Use that user key with the local API:
+1. In **Deploy**, paste a Vast API key, search offers, and choose a machine. The key is saved locally in `data/vast_api_key` with owner-only file permissions. The app creates an SSH key under `data/ssh/` and registers its public key with Vast before renting; the Vast API key needs `user_read` and `user_write` access for this step.
+2. Wait for **Ready**, then create a user key in **API Keys**.
+3. Use that user key with the local API:
 
 ```sh
 curl http://127.0.0.1:8080/v1/chat/completions \
@@ -51,11 +50,11 @@ The app reads these optional environment variables at startup:
 
 | Variable | Purpose | Default |
 | --- | --- | --- |
-| `VASTLLM_DATA_DIR` | SQLite database, Vast key, and SSH host-key file | `./data` |
-| `VASTLLM_SSH_KEY_PATH` | SSH private key used for the tunnel | `~/.ssh/id_ed25519` |
+| `VASTLLM_DATA_DIR` | SQLite database, Vast key, managed SSH pair, and SSH host-key file | `./data` |
+| `VASTLLM_SSH_KEY_PATH` | Optional existing SSH private key override; the app registers its matching public key | App-managed key in `<data-dir>/ssh/` |
 | `VAST_API_KEY` | Alternative to entering the Vast key in Deploy | None |
 
-The saved dashboard key takes precedence over `VAST_API_KEY`, then the Vast CLI key file. The repository does not automatically load `.env` files; [`.env.example`](.env.example) is a reference for shell configuration. Never commit real keys, the `data/` directory, or SSH private keys. Use one dashboard process per data directory.
+The saved dashboard key takes precedence over `VAST_API_KEY`, then the Vast CLI key file. The repository does not automatically load `.env` files; [`.env.example`](.env.example) is a reference for shell configuration. Never commit real keys, the `data/` directory, or SSH private keys. Back up the managed key with `app.db` if you need to reconnect to an existing instance. Use one dashboard process per data directory.
 
 For API methods, limits, error codes, and streaming, see the [API guide](docs/api.md). For instance recovery and stopping charges, see [deployment and operations](docs/deployment.md).
 

@@ -29,6 +29,11 @@ class VastClient:
         try:
             rows = self.sdk.show_ssh_keys()
         except Exception as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            if status == 401:
+                raise VastError("Vast API key không hợp lệ hoặc đã hết hiệu lực") from exc
+            if status == 403:
+                raise VastError("Vast API key cần quyền user_read để kiểm tra SSH keys") from exc
             raise VastError(f"Không đọc được SSH keys từ Vast ({type(exc).__name__})") from exc
         if not isinstance(rows, list):
             raise VastError("Vast không trả danh sách SSH keys hợp lệ")

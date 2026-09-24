@@ -8,6 +8,7 @@ from app.db import Database
 from app.deploy import DeploymentService
 from app.inference import InferenceProxy
 from app.main import create_app
+from app.ssh_keys import SSHIdentity
 
 
 OFFER = {"id": 123, "gpu_name": "RTX PRO 6000", "gpu_ram_gb": 96.0, "price_hour": 0.55, "disk_gb": 200}
@@ -25,6 +26,9 @@ class FakeVast:
         self.destroy_error = False
         self.destroy_calls = 0
         self.search_calls = 0
+
+    def ensure_ssh_key(self, public_key: str) -> None:
+        assert public_key.startswith("ssh-ed25519 ")
 
     def search_offers(self, min_vram_gb: int, disk_gb: int):
         self.search_calls += 1
@@ -67,6 +71,15 @@ class FakeTunnel:
 
     def alive(self) -> bool:
         return self.connected and not self.stopped
+
+
+class FakeSSHKeyManager:
+    def __init__(self, key_path: Path) -> None:
+        self.override_path = key_path
+        self.managed_path = key_path
+
+    def ensure_local_key(self) -> SSHIdentity:
+        return SSHIdentity(self.override_path, "ssh-ed25519 AAAA fake")
 
 
 def service(tmp_path: Path, vast: FakeVast, health_ok: bool = True) -> tuple[DeploymentService, Database, InferenceProxy, FakeTunnel]:
@@ -212,7 +225,7 @@ def test_deploy_tab_and_admin_routes_use_same_service(tmp_path: Path) -> None:
     app = create_app(
         Settings(data_dir=tmp_path, admin_password="a sufficiently long password", vast_api_key="fake", ssh_key_path=key_path),
         vast_client=vast, tunnel_manager=FakeTunnel(), health_check=lambda _port, _model: True,
-        spawn_worker=lambda target: target(),
+        spawn_worker=lambda target: target(), ssh_key_manager=FakeSSHKeyManager(key_path),
     )
     with TestClient(app) as client:
         csrf = client.post("/api/admin/login", json={"password": "a sufficiently long password"}).json()["csrf_token"]
