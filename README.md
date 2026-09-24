@@ -1,71 +1,74 @@
-# Vast LLM riêng qua SSH
+# Vast Private LLM
 
-Ứng dụng Python chạy dashboard và API `/v1` trên máy của bạn. Khi deploy, ứng dụng thuê GPU Vast.ai, chạy vLLM trên instance và nối tới model qua SSH tunnel. Cổng HTTP của model không được mở công khai.
+Run a local dashboard and an OpenAI-compatible chat endpoint on your own computer. The dashboard rents one GPU instance from Vast.ai, starts Qwen3.8 on vLLM, and connects to it through SSH. The model's HTTP port stays on the instance's loopback interface.
 
-## Cài đặt và khởi động dashboard
+[Tiếng Việt](README.vi.md) · [Architecture](docs/architecture.md) · [Deployment and costs](docs/deployment.md) · [API guide](docs/api.md)
 
-Yêu cầu Python 3.12+, `uv` và OpenSSH. Tại thư mục project:
+## What it provides
+
+- **Deploy:** enter a Vast API key, compare one-GPU offers by estimated tokens per second, rent an instance, and follow its startup progress and account credit.
+- **API Keys:** create or revoke local Bearer keys for applications. A new key is shown once; only its hash is stored.
+- **Integration:** copy Markdown instructions or curl examples for another application or agent.
+- **Local API:** call `GET /v1/models` and `POST /v1/chat/completions`, including streaming responses, through the SSH tunnel.
+
+This is a **single-owner, local-only dashboard**. It does not provide a public admin login or a hosted multi-user control plane. Run it on `127.0.0.1`; if you need to use the dashboard from another computer, use SSH port forwarding. User API keys protect `/v1`, not the dashboard.
+
+## Requirements
+
+- Python 3.12 or newer, [uv](https://docs.astral.sh/uv/), and OpenSSH on the computer that runs the dashboard.
+- A Vast.ai account and API key. You can paste the key into the dashboard after startup.
+- An SSH key pair on this computer, with its **public** key added to your Vast.ai account. The default private-key path is `~/.ssh/id_ed25519`.
+- A suitable Vast GPU offer when you choose to deploy. **Renting an instance costs money from the moment it is created, including model download/startup time.**
+
+## Quick start
 
 ```sh
+git clone https://github.com/lploc94/vast-private-llm.git
+cd vast-private-llm
 uv sync --locked
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8080
 ```
 
-Mở `http://127.0.0.1:8080`. Dashboard trên máy này không yêu cầu đăng nhập; trình duyệt được cấp một phiên nội bộ tự động. Các thao tác thay đổi dữ liệu vẫn cần CSRF token của phiên đó. API inference vẫn dùng Bearer key riêng. Giữ dashboard trên loopback; truy cập admin từ máy khác qua SSH forwarding để trình duyệt vẫn mở `localhost`.
+Open <http://127.0.0.1:8080>. The dashboard opens locally without an admin password and creates a local browser session. Keep the bind address on loopback. No Vast key or GPU rental is needed to see the dashboard.
 
-Đặt `VASTLLM_DATA_DIR` nếu muốn lưu SQLite và dữ liệu vận hành ở thư mục khác. Thư mục dữ liệu cần chỉ chủ máy đọc được. Mặc định dashboard và API chỉ nghe trên loopback.
-
-## Luồng sử dụng
-
-- **Deploy:** nhập Vast API key, tìm offer, thuê máy và theo dõi trạng thái.
-- **API Keys:** cấp hoặc thu hồi key cho từng user. Key chỉ hiển thị một lần khi tạo.
-- **Integration:** xem endpoint, method, curl dùng Bearer key và response mẫu; nút **Copy as Markdown** sao chép hướng dẫn để đưa cho agent tích hợp.
-- **Inference:** ứng dụng cùng máy gọi `http://127.0.0.1:8080/v1` bằng Bearer key. Các request tới vLLM đi qua SSH tunnel.
-
-Dashboard và API key hoạt động ngay cả khi chưa thuê máy. Trạng thái trong tab Deploy cho biết model đã sẵn sàng hay đang chờ khôi phục.
-
-## API key và gọi model
-
-Trong tab **API Keys**, nhập tên user, tạo key và sao chép giá trị được hiển thị một lần. Danh sách chỉ hiển thị phần đầu key, ngày tạo và trạng thái. Thu hồi key sẽ làm request tiếp theo bị từ chối. Key này chỉ gọi được `/v1`, không dùng cho dashboard.
-
-Sau khi deployment báo `ready`, ứng dụng trên cùng máy có thể gọi:
+1. Add your SSH public key to Vast.ai. If your private key is elsewhere, set `VASTLLM_SSH_KEY_PATH` before starting the dashboard.
+2. In **Deploy**, paste a Vast API key, search offers, and choose a machine. The key is saved locally in `data/vast_api_key` with owner-only file permissions.
+3. Wait for **Ready**, then create a user key in **API Keys**.
+4. Use that user key with the local API:
 
 ```sh
-curl http://127.0.0.1:8080/v1/models \
-  -H 'Authorization: Bearer YOUR_USER_KEY'
-
 curl http://127.0.0.1:8080/v1/chat/completions \
   -H 'Authorization: Bearer YOUR_USER_KEY' \
   -H 'Content-Type: application/json' \
-  -d '{"model":"qwen-3.8","messages":[{"role":"user","content":"Xin chào"}],"max_tokens":16384}'
+  -d '{"model":"qwen-3.8","messages":[{"role":"user","content":"Hello"}],"max_tokens":128}'
 ```
 
-Response chat có dạng rút gọn: `{"model":"qwen-3.8","choices":[{"message":{"role":"assistant","content":"Xin chào!"},"finish_reason":"stop"}]}`. Nội dung thực tế phụ thuộc prompt và model.
+The only supported deployment model is [`huihui-ai/Huihui-Qwen3.8-27B-abliterated`](https://huggingface.co/huihui-ai/Huihui-Qwen3.8-27B-abliterated). Call it as `qwen-3.8` in `/v1` requests. Model weights are downloaded onto the rented instance; they are **not** in this repository. See [deployment requirements and cost behavior](docs/deployment.md) before renting.
 
-Để nhận từng phần response, thêm `"stream":true` vào JSON của request chat. Khi chưa deploy, key hợp lệ nhận `503`; key thiếu, sai hoặc đã thu hồi nhận `401`. Mặc định API chỉ nghe trên `127.0.0.1`. Nếu app gọi từ máy khác, hãy kết nối máy qua mạng riêng/VPN trước khi mở bind ngoài loopback.
+## Configuration and local data
 
-## Kết nối Vast và deploy
+The app reads these optional environment variables at startup:
 
-Tạo một Vast API key trong tài khoản Vast và thêm SSH public key của máy chạy dashboard vào tài khoản. Dán key vào phần **Vast API key** trong tab Deploy; app kiểm tra quyền truy cập Vast trước khi lưu vào `./data/vast_api_key` (quyền đọc chỉ dành cho chủ máy) và dùng ngay, kể cả sau khi khởi động lại. Dashboard chỉ hiển thị 4 ký tự đầu và 4 ký tự cuối để nhận diện key, không trả toàn bộ key. Cùng phần này hiển thị credit USD còn lại của tài khoản Vast mà key đang truy cập. Trình duyệt hiển thị ngay số liệu gần nhất (tối đa 24 giờ tuổi) kèm dòng “Cập nhật X giây trước”, rồi âm thầm lấy số mới từ Vast; làm mới mỗi phút khi tab Deploy mở hoặc khi bấm **Làm mới**. Nếu Vast tạm lỗi, số cũ vẫn hiển thị với ghi chú chưa làm mới được. Key lưu trong dashboard được ưu tiên; nếu chưa có, app dùng `VAST_API_KEY`, rồi tới key mà Vast CLI lưu ở `~/.config/vastai/vast_api_key`. Dashboard vẫn chạy được khi chưa có key, nhưng nút tìm offer và Deploy sẽ báo cấu hình còn thiếu. Đặt `VASTLLM_SSH_KEY_PATH` nếu private key không ở `~/.ssh/id_ed25519`. Nếu đang thuê instance, key thay thế phải truy cập được instance đó.
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `VASTLLM_DATA_DIR` | SQLite database, Vast key, and SSH host-key file | `./data` |
+| `VASTLLM_SSH_KEY_PATH` | SSH private key used for the tunnel | `~/.ssh/id_ed25519` |
+| `VAST_API_KEY` | Alternative to entering the Vast key in Deploy | None |
 
-Tab **Deploy** tìm các offer on-demand phù hợp VRAM và disk bạn chọn cho Qwen3.8. Giá hiển thị là giá theo giờ tại thời điểm tìm; app kiểm tra lại offer trước khi thuê. Tiền thuê Vast bắt đầu khi instance được tạo, trong lúc model còn tải hoặc khởi động. Chọn máy có driver/CUDA tương thích và disk đủ cho model.
+The saved dashboard key takes precedence over `VAST_API_KEY`, then the Vast CLI key file. The repository does not automatically load `.env` files; [`.env.example`](.env.example) is a reference for shell configuration. Never commit real keys, the `data/` directory, or SSH private keys. Use one dashboard process per data directory.
 
-Khi deploy, dashboard hiển thị bước hiện tại và thời gian instance đã chạy theo `start_date` của Vast. Đồng hồ tiếp tục chạy qua các bước khởi động, nạp model và khi tải lại trang.
+For API methods, limits, error codes, and streaming, see the [API guide](docs/api.md). For instance recovery and stopping charges, see [deployment and operations](docs/deployment.md).
 
-Model duy nhất là [`huihui-ai/Huihui-Qwen3.8-27B-abliterated`](https://huggingface.co/huihui-ai/Huihui-Qwen3.8-27B-abliterated), bản Qwen3.8-27B uncensored BF16. Mặc định tìm GPU từ **80 GB VRAM** và **120 GB disk** với CUDA >=13.0; 96 GB VRAM cho thêm khoảng trống vận hành. Checkpoint khoảng 55.6 GB trên disk; các ngưỡng này là cấu hình khởi đầu, chưa được kiểm chứng trên mọi instance Vast. App dùng image `vllm/vllm-openai:qwen38` để phục vụ text chat với context tối đa 262,144 token và tool calling. Prefix caching được bật khi khởi động vLLM để tái dùng phần đầu prompt trùng nhau và giảm thời gian xử lý input ở các lượt sau; cache nằm trong phiên chạy model, không lưu qua lần khởi động lại. vLLM chỉ chạy một lượt sinh token tại một thời điểm; request đến sau được xếp hàng. Dashboard không còn preset 0.6B hoặc ô model tùy chỉnh.
+## Project layout
 
-Tab Deploy hiển thị offer trong bảng, có thể sắp xếp theo tok/s ước lượng, giá/giờ hoặc tok/$ ước lượng. Tok/s cho một request đang decode được tính xấp xỉ `0,70 × gpu_mem_bw (GB/s) ÷ 55,563 GB trọng số BF16`; 55,563 GB lấy từ [recipe vLLM](https://github.com/vllm-project/recipes/blob/main/models/Qwen/Qwen3.8-27B.yaml), còn 0,70 là hệ số hiệu quả giả định. Tok/$ = `tok/s × 3600 ÷ giá/giờ`, giả định GPU sinh token liên tục. Đây là chỉ số so sánh từ băng thông Vast công bố, không phải benchmark hay cam kết tốc độ; nếu offer thiếu băng thông thì bảng hiển thị `—`. Sau khi thuê, đo tok/s thực tế bằng cùng prompt và số request dự kiến trước khi quyết định giữ máy.
+```text
+app/        FastAPI dashboard, deployment service, Vast client, SSH tunnel, API proxy
+tests/      Existing local fakes and test sources
+docs/       Architecture, deployment, and API details
+```
 
-Khi gọi API sau khi Qwen3.8 ready, trường `model` phải là `qwen-3.8` đúng như `/v1/models` trả về; tên Hugging Face dài chỉ dùng để deploy. Mỗi request chỉ hỗ trợ một lựa chọn (`n=1`). Có thể đặt `max_tokens` là 16,384 hoặc 32,768; tổng input và output không vượt 262,144 token. Khi dành 32,768 token cho output, còn tối đa 229,376 token input, kể cả system prompt và tool definitions. Nếu Vast không có offer đạt yêu cầu, tab Deploy báo không có máy và không tạo instance.
+## License and contributions
 
-Vast chỉ mở SSH. vLLM nghe tại `127.0.0.1:8000` bên trong instance; dashboard tạo SSH tunnel tới cổng đó rồi mới bật `/v1` khi `/v1/models` trả đúng model. File `<data-dir>/known_hosts` do app quản lý dùng chính sách tin cậy host key ở kết nối đầu tiên; key thay đổi ở lần sau sẽ bị từ chối và hiện lỗi. Không xóa file này để bỏ qua cảnh báo host key mà chưa xác minh instance mới.
+This project's code and documentation are available under the [MIT License](LICENSE). The Qwen model, vLLM image, Vast.ai service, and dependencies have separate terms; this repository does not license or redistribute them. The linked model card currently identifies the model files as Apache-2.0.
 
-Mỗi lần bấm Deploy tạo một mã operation trước khi gọi Vast và đặt label `vastllm-<operation-id>` cho instance. Nếu tạo máy xong nhưng app mất response hoặc khởi động lại trước khi lưu instance ID, app tìm label trong danh sách instance của tài khoản. Khi chưa xác định được kết quả, app không thuê thêm máy; kiểm tra label và chi phí trong Vast Console trước khi xử lý thủ công.
-
-## Vận hành, khôi phục và dừng chi phí
-
-Chạy dashboard bằng trình quản lý tiến trình của máy bạn để app được khởi động lại sau reboot. Giữ bind `127.0.0.1`; dashboard không cấp phiên admin cho kết nối ngoài máy này. Sao lưu `app.db` khi app đã dừng hoặc dùng cơ chế backup SQLite; file chứa phiên, hash API key và operation/instance ID. Bảo vệ `data/vast_api_key`, `known_hosts` và SSH private key. Không chạy nhiều tiến trình app trên cùng thư mục dữ liệu.
-
-Khi app khởi động lại, nó đọc deployment đã lưu, đối soát operation chưa có instance ID theo label, rồi kiểm tra lại Vast, SSH tunnel và model trước khi bật API. Nếu SSH hoặc model mất kết nối, `/v1` trả `503` cho key hợp lệ và dashboard hiển thị trạng thái offline/error. App thử nối lại với khoảng chờ có giới hạn; nút **Thử thiết lập lại** cho phép admin thử ngay mà không thuê thêm instance.
-
-Nút **Destroy instance** yêu cầu xác nhận trước khi gọi Vast. Khi Vast xác nhận destroy, app tắt tunnel, xóa instance/operation khỏi trạng thái deployment và giữ các API key để dùng cho model deploy sau. Nếu Vast báo lỗi hoặc không phản hồi, app giữ instance ID để bạn thử lại và kiểm tra trực tiếp trên Vast Console. Tiền thuê chỉ dừng khi Vast xác nhận máy đã bị destroy; kiểm tra trang instance và hóa đơn Vast sau thao tác. Nếu create còn `create_unknown`, kiểm tra label `vastllm-<operation-id>` trên Vast trước khi destroy; app sẽ không thuê máy khác trong trạng thái này.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contributions and [SECURITY.md](SECURITY.md) for private vulnerability reports.

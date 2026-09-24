@@ -2,7 +2,17 @@
 name = "vast-private-llm"
 version = "0.1.0"
 description = "Private Vast.ai LLM dashboard and local OpenAI-compatible API"
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.12"
+keywords = ["vast-ai", "llm", "vllm", "fastapi", "ssh"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Framework :: FastAPI",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+]
 dependencies = [
     "fastapi>=0.115",
     "httpx>=0.27",
@@ -10,6 +20,10 @@ dependencies = [
     "uvicorn>=0.30",
     "vastai>=1.8.0",
 ]
+
+[project.urls]
+Repository = "https://github.com/lploc94/vast-private-llm"
+Issues = "https://github.com/lploc94/vast-private-llm/issues"
 
 [dependency-groups]
 dev = ["pytest>=8"]
