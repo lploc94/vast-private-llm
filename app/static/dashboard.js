@@ -1,4 +1,8 @@
 let csrfToken = "";
+let currentDeploymentState = null;
+let sshKeyStatus = null;
+let sshKeyBusy = false;
+let sshStatusEpoch = 0;
 const statusMessage = document.getElementById("status-message");
 const runtimeLabel = document.getElementById("instance-runtime");
 let runtimeInstanceId = null;
@@ -93,6 +97,7 @@ async function loadDashboard() {
     const state = await stateResponse.json();
     renderDeployment(state);
     await loadSettings();
+    await loadSSHStatus();
     await loadModels();
   } catch (error) {
     statusMessage.textContent = error.message || "Không thể tải dashboard.";
@@ -100,6 +105,8 @@ async function loadDashboard() {
 }
 
 function renderDeployment(state) {
+  const previousState = currentDeploymentState;
+  currentDeploymentState = state;
   const phaseLabels = {
     idle: "Chưa deploy", creating: "Đang thuê máy", create_unknown: "Đang đối soát",
     provisioning: "Đang khởi động", connecting: "Đang kết nối", loading_model: "Đang nạp model",
@@ -128,6 +135,11 @@ function renderDeployment(state) {
   document.getElementById("retry-setup").disabled = !state.operation_id ||
     ["ready", "creating", "provisioning", "connecting", "loading_model", "recovering", "destroying", "destroy_unknown", "destroy_error"].includes(state.phase);
   document.getElementById("destroy-instance").disabled = !state.instance_id || state.phase === "destroying";
+  updateSSHKeyButton();
+  if (previousState && (previousState.phase !== state.phase || previousState.instance_id !== state.instance_id)
+      && ["idle", "error"].includes(state.phase) && !state.instance_id && !state.operation_id) {
+    loadSSHStatus();
+  }
 }
 
 setInterval(async () => {
@@ -153,7 +165,10 @@ document.querySelectorAll(".tab").forEach((button) => {
     document.getElementById("panel-keys").hidden = selected !== "keys";
     document.getElementById("panel-integration").hidden = selected !== "integration";
     if (selected === "keys" && csrfToken) loadKeys();
-    if (selected === "deploy" && csrfToken) loadSettings();
+    if (selected === "deploy" && csrfToken) {
+      loadSettings();
+      loadSSHStatus();
+    }
   });
 });
 
@@ -360,6 +375,62 @@ async function loadSettings() {
   }
 }
 
+function updateSSHKeyButton() {
+  const state = currentDeploymentState;
+  const idle = state && ["idle", "error"].includes(state.phase)
+    && !state.instance_id && !state.operation_id;
+  document.getElementById("revoke-managed-ssh").disabled =
+    sshKeyBusy || !idle || !sshKeyStatus?.can_revoke;
+}
+
+function renderSSHKeyStatus(status) {
+  sshKeyStatus = status;
+  document.getElementById("managed-ssh-status").textContent = status.message;
+  updateSSHKeyButton();
+}
+
+async function loadSSHStatus() {
+  if (sshKeyBusy) return;
+  const epoch = ++sshStatusEpoch;
+  try {
+    const response = await fetch("/api/admin/ssh-key");
+    if (response.status === 401) return location.assign("/");
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || "Không kiểm tra được SSH key.");
+    if (!sshKeyBusy && epoch === sshStatusEpoch) renderSSHKeyStatus(result);
+  } catch (error) {
+    if (!sshKeyBusy && epoch === sshStatusEpoch) {
+      sshKeyStatus = null;
+      document.getElementById("managed-ssh-status").textContent = error.message || "Không kiểm tra được SSH key.";
+      updateSSHKeyButton();
+    }
+  }
+}
+
+document.getElementById("revoke-managed-ssh").addEventListener("click", async () => {
+  if (!confirm("Thu hồi SSH public key trên Vast và xóa cặp key do app quản lý trên máy này? Hãy chắc chắn mọi instance đã kết thúc.")) return;
+  sshStatusEpoch++;
+  sshKeyBusy = true;
+  updateSSHKeyButton();
+  document.getElementById("managed-ssh-status").textContent = "Đang thu hồi SSH key...";
+  try {
+    const response = await fetch("/api/admin/ssh-key/revoke", {
+      method: "POST",
+      headers: {"Content-Type": "application/json", "X-CSRF-Token": csrfToken},
+      body: JSON.stringify({confirm: true}),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.detail || "Không thu hồi được SSH key.");
+    renderSSHKeyStatus(result);
+  } catch (error) {
+    sshKeyStatus = null;
+    document.getElementById("managed-ssh-status").textContent = error.message || "Không thu hồi được SSH key.";
+  } finally {
+    sshKeyBusy = false;
+    updateSSHKeyButton();
+  }
+});
+
 document.getElementById("vast-key-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const input = document.getElementById("vast-api-key");
@@ -382,6 +453,7 @@ document.getElementById("vast-key-form").addEventListener("submit", async (event
     creditRefreshState = "ready";
     try { localStorage.removeItem(creditCacheKey); } catch (_error) { /* Storage may be unavailable. */ }
     await loadSettings();
+    await loadSSHStatus();
     showSettingsMessage("Đã lưu Vast API key. Có thể tìm máy và deploy ngay.");
   } catch (error) {
     showSettingsMessage(error.message || "Không thể lưu Vast API key.", true);

@@ -50,6 +50,10 @@
             <button type="submit">Lưu Vast API key</button>
           </form>
           <p id="settings-message" role="status" aria-live="polite" hidden></p>
+          <h3 class="ssh-key-heading">SSH key do app quản lý</h3>
+          <p id="managed-ssh-status" role="status" aria-live="polite">Đang kiểm tra...</p>
+          <button id="revoke-managed-ssh" class="danger" type="button" disabled>Thu hồi SSH key do app quản lý</button>
+          <p class="hint">Chỉ gỡ khi tài khoản Vast không còn instance. Key SSH tự cấu hình không bị xóa. Gỡ key trên tài khoản Vast không chứng minh đã tháo key khỏi instance khác đang chạy.</p>
         </div>
         <p class="hint">Model: <strong id="deploy-model">Đang tải...</strong>. Chi phí Vast bắt đầu khi instance được tạo.</p>
         <div class="deploy-form">

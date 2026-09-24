@@ -56,6 +56,8 @@ The app reads these optional environment variables at startup:
 
 The saved dashboard key takes precedence over `VAST_API_KEY`, then the Vast CLI key file. The repository does not automatically load `.env` files; [`.env.example`](.env.example) is a reference for shell configuration. Never commit real keys, the `data/` directory, or SSH private keys. Back up the managed key with `app.db` if you need to reconnect to an existing instance. Use one dashboard process per data directory.
 
+Destroying an instance leaves the account SSH key available for reuse. After all Vast instances are gone, use **Revoke managed SSH key** in Deploy to remove this app's public key from the selected Vast account and then delete its local pair. The control requires a Vast key with `user_read` and `user_write`; it does not delete an existing key selected with `VASTLLM_SSH_KEY_PATH`. If the key is absent from the selected account, the app keeps the local pair so you can check whether you changed Vast accounts or removed the remote key manually. See [deployment and operations](docs/deployment.md) for the limits of account-level revocation.
+
 For API methods, limits, error codes, and streaming, see the [API guide](docs/api.md). For instance recovery and stopping charges, see [deployment and operations](docs/deployment.md).
 
 ## Project layout

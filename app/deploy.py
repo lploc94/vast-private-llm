@@ -99,6 +99,52 @@ class DeploymentService:
     def account_credit(self) -> float:
         return self._require_vast().show_credit()
 
+    def _ssh_key_status_locked(self) -> dict[str, bool | str]:
+        unavailable = {"managed": False, "registered": False, "can_revoke": False}
+        manager = self.ssh_key_manager
+        if manager is None or manager.override_path is not None:
+            return {**unavailable, "message": "Đang dùng SSH key tùy chỉnh; hãy quản lý key này thủ công"}
+        try:
+            identity = manager.managed_identity()
+        except SSHKeyError as exc:
+            return {**unavailable, "managed": True, "message": str(exc)}
+        if identity is None:
+            return {**unavailable, "message": "Chưa có SSH key do ứng dụng quản lý"}
+        status = {**unavailable, "managed": True}
+        if self.vast is None:
+            return {**status, "message": "Cần cấu hình Vast API key"}
+        state = self.db.deployment_state()
+        if (self._worker_active or self._destroy_active or self._stopping.is_set()
+                or state["instance_id"] or state["operation_id"]
+                or state["phase"] not in {"idle", "error"}):
+            return {**status, "message": "Hãy hoàn tất hoặc destroy deployment trước khi gỡ SSH key"}
+        try:
+            if self.vast.show_instances():
+                return {**status, "message": "Vast vẫn còn instance; hãy kết thúc tất cả trước khi gỡ SSH key"}
+            if self.vast.matching_ssh_key_id(identity.public_key) is None:
+                return {**status, "message": "Không thấy SSH key trong tài khoản Vast hiện tại; kiểm tra API key"}
+        except VastError as exc:
+            return {**status, "message": str(exc)}
+        return {**status, "registered": True, "can_revoke": True, "message": "Có thể thu hồi SSH key do ứng dụng quản lý"}
+
+    def ssh_key_status(self) -> dict[str, bool | str]:
+        with self._lock:
+            return self._ssh_key_status_locked()
+
+    def revoke_managed_ssh_key(self) -> dict[str, bool | str]:
+        with self._lock:
+            status = self._ssh_key_status_locked()
+            if not status["can_revoke"]:
+                raise ValueError(str(status["message"]))
+            manager = self.ssh_key_manager
+            if manager is None:
+                raise ValueError("Không có SSH key do ứng dụng quản lý")
+            manager.revoke_managed_key(self._require_vast().revoke_ssh_key)
+            return {
+                "managed": False, "registered": False, "can_revoke": False,
+                "message": "Đã gỡ SSH key trên Vast và xóa cặp key local",
+            }
+
     def configure_vast(
         self, candidate: VastClient, api_key: str, persist: Callable[[], None]
     ) -> None:

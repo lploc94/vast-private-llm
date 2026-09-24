@@ -140,6 +140,14 @@ class SSHKeyManager:
     def managed_identity(self) -> SSHIdentity | None:
         if self.override_path is not None:
             raise SSHKeyError("SSH key tùy chỉnh không do ứng dụng quản lý")
+        try:
+            data_info = self.data_dir.lstat()
+        except FileNotFoundError:
+            return None
+        except OSError as exc:
+            raise SSHKeyError("Không đọc được thư mục dữ liệu") from exc
+        if not stat.S_ISDIR(data_info.st_mode) or stat.S_IMODE(data_info.st_mode) != 0o700:
+            raise SSHKeyError("Thư mục dữ liệu không an toàn; cần quyền 0700")
         if not os.path.lexists(self.managed_dir):
             return None
         try:

@@ -14,6 +14,10 @@ class VastKeyRequest(BaseModel):
     api_key: str
 
 
+class RevokeSSHKeyRequest(BaseModel):
+    confirm: bool
+
+
 def register_settings_routes(
     app: FastAPI,
     service: DeploymentService,
@@ -28,6 +32,23 @@ def register_settings_routes(
             "vast_api_key_saved": (data_dir / "vast_api_key").is_file(),
             "vast_api_key_hint": service.vast_key_hint,
         }
+
+    @app.get("/api/admin/ssh-key")
+    def get_ssh_key_status(_session: AdminSession = Depends(require_admin)) -> dict[str, bool | str]:
+        return service.ssh_key_status()
+
+    @app.post("/api/admin/ssh-key/revoke")
+    def revoke_ssh_key(
+        payload: RevokeSSHKeyRequest, _session: AdminSession = Depends(require_csrf)
+    ) -> dict[str, bool | str]:
+        if not payload.confirm:
+            raise HTTPException(status_code=400, detail="Cần xác nhận thu hồi SSH key")
+        try:
+            return service.revoke_managed_ssh_key()
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @app.get("/api/admin/vast-credit")
     def get_vast_credit(_session: AdminSession = Depends(require_admin)) -> dict[str, float]:
