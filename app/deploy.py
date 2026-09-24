@@ -318,6 +318,21 @@ class DeploymentService:
 
     @staticmethod
     def _ssh_endpoint(instance: dict[str, Any]) -> tuple[str, int]:
+        public_ip = instance.get("public_ipaddr")
+        ports = instance.get("ports")
+        if isinstance(public_ip, str) and public_ip and isinstance(ports, dict):
+            mappings = ports.get("22/tcp")
+            if isinstance(mappings, list):
+                for mapping in mappings:
+                    if not isinstance(mapping, dict) or mapping.get("HostIp") not in (None, "0.0.0.0", public_ip):
+                        continue
+                    raw_port = mapping.get("HostPort")
+                    try:
+                        direct_port = int(raw_port) if not isinstance(raw_port, bool) else 0
+                    except (TypeError, ValueError):
+                        continue
+                    if 1 <= direct_port <= 65535:
+                        return str(public_ip), direct_port
         host = instance.get("ssh_host") or instance.get("public_ipaddr")
         port = instance.get("ssh_port")
         if not host or not port:

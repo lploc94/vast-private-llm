@@ -18,7 +18,7 @@ The offer table can sort by estimated decode tokens per second, hourly price, or
 
 ## What happens after Deploy
 
-The dashboard tracks **Rent machine → Boot → SSH → Load model → Ready**. It creates a Vast instance using the `vllm/vllm-openai:qwen38` image, runs vLLM on the instance loopback port, then establishes an SSH tunnel. The local `/v1` API becomes available only after vLLM reports the expected model.
+The dashboard tracks **Rent machine → Boot → SSH → Load model → Ready**. It creates a Vast instance using the `vllm/vllm-openai:qwen38` image, runs vLLM on the instance loopback port, then establishes an SSH tunnel. When Vast supplies a direct `22/tcp` mapping, the tunnel uses that public IP and port; otherwise it uses Vast's SSH proxy endpoint. The local `/v1` API becomes available only after vLLM reports the expected model.
 
 vLLM serves text chat with a maximum configured context length of 262,144 tokens, tool calling, and explicit prefix caching. It generates for one request at a time; later requests wait in a queue. Prefix caching can save repeated prompt prefill work when requests share the same beginning, but it does not persist after vLLM restarts.
 
