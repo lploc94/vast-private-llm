@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vast LLM Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div><div class="eyebrow">VAST LLM</div><h1>Dashboard</h1></div>
+    </header>
+    <nav class="tabs" aria-label="Dashboard tabs">
+      <button type="button" class="tab active" data-tab="deploy" aria-selected="true">Deploy</button>
+      <button type="button" class="tab" data-tab="keys" aria-selected="false">API Keys</button>
+      <button type="button" class="tab" data-tab="integration" aria-selected="false">Integration</button>
+    </nav>
+    <main>
+      <section id="panel-deploy" class="panel">
+        <div class="panel-heading"><h2>Deploy model</h2><span id="phase" class="badge">Đang tải</span></div>
+        <p id="status-message">Đang đọc trạng thái...</p>
+        <p id="instance-details" class="hint"></p>
+        <p class="runtime-line">Thời gian chạy instance: <strong id="instance-runtime">Chưa có instance</strong></p>
+        <div class="deploy-progress">
+          <div class="progress-heading">
+            <strong id="progress-step">Chưa deploy</strong>
+            <span id="progress-count">0/5 bước</span>
+          </div>
+          <div id="progress-track" class="progress-track" role="progressbar" aria-label="Tiến trình deploy" aria-valuemin="0" aria-valuemax="5" aria-valuenow="0" aria-valuetext="Chưa deploy">
+            <div id="progress-fill" class="progress-fill"></div>
+          </div>
+        </div>
+        <p id="deploy-error" class="error" role="alert" hidden></p>
+        <div class="deployment-actions">
+          <button id="retry-setup" type="button" class="quiet" disabled>Thử thiết lập lại</button>
+          <button id="destroy-instance" type="button" class="danger" disabled>Destroy instance</button>
+        </div>
+        <div class="vast-key-section">
+          <h3>Vast API key</h3>
+          <p>Trạng thái: <strong id="vast-key-status">Đang kiểm tra...</strong></p>
+          <p class="vast-credit-line">Credit tài khoản còn lại: <strong id="vast-credit" aria-live="polite">Đang kiểm tra...</strong> <button id="refresh-vast-credit" class="quiet" type="button">Làm mới</button></p>
+          <p id="vast-credit-meta" class="hint"></p>
+          <p class="hint">Dán key mới để tìm máy và deploy. Key được lưu riêng trên máy này và không hiển thị lại.</p>
+          <a class="button-link" href="https://cloud.vast.ai/manage-keys/?tab=api-keys" target="_blank" rel="noopener noreferrer">Tạo Vast API key ↗</a>
+          <form id="vast-key-form" class="settings-form">
+            <label for="vast-api-key">Vast API key</label>
+            <input id="vast-api-key" type="password" autocomplete="off" maxlength="512" required>
+            <button type="submit">Lưu Vast API key</button>
+          </form>
+          <p id="settings-message" role="status" aria-live="polite" hidden></p>
+        </div>
+        <p class="hint">Model: <strong id="deploy-model">Đang tải...</strong>. Chi phí Vast bắt đầu khi instance được tạo.</p>
+        <div class="deploy-form">
+          <label for="min-vram">VRAM tối thiểu (GB)
+            <input id="min-vram" type="number" min="80" max="192" value="80">
+          </label>
+          <label for="disk-gb">Disk (GB)
+            <input id="disk-gb" type="number" min="120" max="1000" value="120">
+          </label>
+          <button id="search-offers" type="button" disabled>Tìm máy</button>
+        </div>
+        <p class="hint estimate-note">Tok/s là ước lượng decode cho một request BF16: 70% băng thông GPU do Vast công bố ÷ 55,56 GB trọng số. Tok/$ giả định sinh token liên tục trong một giờ. Tốc độ thực tế phụ thuộc prompt, máy và tải; hãy benchmark sau khi deploy.</p>
+        <div id="offers-toolbar" class="offers-toolbar" hidden>
+          <span id="offers-count"></span>
+          <label for="offers-sort">Sắp xếp</label>
+          <select id="offers-sort">
+            <option value="value">Tok/$ cao nhất</option>
+            <option value="speed">Tok/s cao nhất</option>
+            <option value="price">Giá thấp nhất</option>
+          </select>
+        </div>
+        <div id="offers" class="offers"></div>
+      </section>
+      <section id="panel-keys" class="panel" hidden>
+        <h2>API Keys</h2>
+        <p class="hint">Tạo key cho user để gọi API LLM. Giá trị key chỉ hiển thị một lần.</p>
+        <form id="key-create" class="inline-form">
+          <label for="key-user">Tên user</label>
+          <input id="key-user" name="user" maxlength="100" required placeholder="Ví dụ: Lan">
+          <button type="submit">Tạo API key</button>
+        </form>
+        <div id="new-key" class="key-reveal" hidden>
+          <strong>Hãy sao chép key ngay</strong>
+          <div class="key-copy-row">
+            <code id="new-key-value"></code>
+            <button id="copy-key" class="quiet" type="button">Sao chép</button>
+          </div>
+          <span id="copy-key-status" role="status" aria-live="polite" hidden></span>
+          <span>Sau khi rời trang, bạn sẽ không xem lại được giá trị này.</span>
+        </div>
+        <p id="keys-error" class="error" role="alert" hidden></p>
+        <table class="key-table">
+          <thead><tr><th>User</th><th>Key</th><th>Ngày tạo</th><th>Trạng thái</th><th></th></tr></thead>
+          <tbody id="keys-list"></tbody>
+        </table>
+      </section>
+      <section id="panel-integration" class="panel" hidden>
+        <div class="integration-heading">
+          <h2>Integration</h2>
+          <button id="copy-integration-md" class="quiet" type="button">Copy as Markdown</button>
+        </div>
+        <p id="copy-integration-status" role="status" aria-live="polite" hidden></p>
+        <p class="hint">Dùng API key tạo ở tab API Keys. Model cần ở trạng thái <strong>ready</strong> trong tab Deploy.</p>
+        <div class="api-summary">
+          <div><span>Base URL</span><code id="integration-base-url">Đang tải...</code></div>
+          <div><span>Model</span><code>qwen-3.8</code></div>
+        </div>
+        <h3>Chat completion</h3>
+        <p><code>POST /v1/chat/completions</code> · Header <code>Authorization: Bearer YOUR_USER_KEY</code></p>
+        <pre class="code-block"><code id="integration-chat-curl"></code></pre>
+        <h3>Response ví dụ (rút gọn)</h3>
+        <pre class="code-block"><code id="integration-chat-response">{
+  "model": "qwen-3.8",
+  "choices": [{
+    "message": {"role": "assistant", "content": "Xin chào!"},
+    "finish_reason": "stop"
+  }]
+}</code></pre>
+        <h3>Danh sách model</h3>
+        <p><code>GET /v1/models</code></p>
+        <pre class="code-block"><code id="integration-models-curl"></code></pre>
+        <p class="hint">Đổi <code>YOUR_USER_KEY</code> thành key của user. Thêm <code>"stream": true</code> vào JSON để nhận phản hồi từng phần. Key sai nhận 401; model chưa sẵn sàng nhận 503.</p>
+      </section>
+    </main>
+  </div>
+  <script src="/static/dashboard.js" defer></script>
+</body>
+</html>

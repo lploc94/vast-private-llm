@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Đăng nhập · Vast LLM</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="auth-page">
+  <main class="auth-card">
+    <div class="eyebrow">VAST LLM</div>
+    <h1>Dashboard riêng</h1>
+    {% if setup_required %}
+    <p>Chưa có admin. Khởi động ứng dụng với biến môi trường <code>VASTLLM_ADMIN_PASSWORD</code> để tạo mật khẩu đầu tiên.</p>
+    {% else %}
+    <p>Đăng nhập để quản lý máy Vast và API key.</p>
+    <form id="login-form">
+      <label for="password">Mật khẩu admin</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
+      <button type="submit">Đăng nhập</button>
+      <p id="login-error" class="error" role="alert" hidden></p>
+    </form>
+    {% endif %}
+  </main>
+  <script src="/static/login.js" defer></script>
+</body>
+</html>
