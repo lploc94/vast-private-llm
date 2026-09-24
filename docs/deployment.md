@@ -3,10 +3,12 @@
 ## Before renting
 
 1. Create a Vast.ai account and API key. Paste it into **Deploy** after starting the local dashboard, or export `VAST_API_KEY` before starting it. A saved dashboard key takes precedence, followed by the environment variable and the Vast CLI key file.
-2. Add this computer's SSH **public** key to the Vast account. The app uses the matching private key at `~/.ssh/id_ed25519` by default; set `VASTLLM_SSH_KEY_PATH` for a different private-key path.
+2. The app prepares an Ed25519 key pair in `<data-dir>/ssh/` and registers only its **public** key with Vast before renting. No manual SSH-key upload is needed. Set `VASTLLM_SSH_KEY_PATH` only if you want to use an existing private key instead; the app will register its matching public key without changing your files.
 3. Search offers in the dashboard. The only supported deployment model is [`huihui-ai/Huihui-Qwen3.8-27B-abliterated`](https://huggingface.co/huihui-ai/Huihui-Qwen3.8-27B-abliterated), called `qwen-3.8` by the local API. The model files download to the rented GPU instance and are not stored in this repository.
 
 The dashboard starts with **80 GB GPU VRAM** and **120 GB disk** as minimums and searches for one on-demand GPU with CUDA 13.0 or newer. More VRAM gives the runtime additional room. Model weights are roughly 55.6 GB. These are starting thresholds, not a guarantee that every Vast host will run the model successfully.
+
+The managed private key stays in the local data directory with owner-only permissions. Keep it when backing up or moving the dashboard if you want to reconnect to an existing instance. The corresponding account-level public key remains on Vast after an instance is destroyed; you can remove it in the Vast console when no instance or future deployment needs it. Scoped Vast API keys need `user_read` to list SSH keys and `user_write` to register a new one. A registration failure stops before the GPU rental begins.
 
 ## Comparing offers
 

@@ -3,6 +3,7 @@ import shlex
 from typing import Any
 
 from app.models import QWEN38_API_MODEL_ID, QWEN38_MODEL_ID
+from app.ssh_keys import SSHKeyError, public_key_material
 
 VLLM_IMAGE = "vllm/vllm-openai:qwen38"
 QWEN38_WEIGHT_GB = 55.563006776
@@ -23,6 +24,44 @@ class VastClient:
             # The SDK counts attempts, so one sends a request without retrying create.
             sdk = VastAI(api_key=api_key, quiet=True, retry=1)
         self.sdk = sdk
+
+    def _account_ssh_key_materials(self) -> set[tuple[str, bytes]]:
+        try:
+            rows = self.sdk.show_ssh_keys()
+        except Exception as exc:
+            raise VastError(f"Không đọc được SSH keys từ Vast ({type(exc).__name__})") from exc
+        if not isinstance(rows, list):
+            raise VastError("Vast không trả danh sách SSH keys hợp lệ")
+        materials: set[tuple[str, bytes]] = set()
+        for row in rows:
+            if not isinstance(row, dict) or not isinstance(row.get("public_key"), str):
+                raise VastError("Vast trả SSH key không hợp lệ")
+            try:
+                materials.add(public_key_material(row["public_key"]))
+            except SSHKeyError as exc:
+                raise VastError("Vast trả SSH key không hợp lệ") from exc
+        return materials
+
+    def ensure_ssh_key(self, public_key: str) -> None:
+        target = public_key_material(public_key)
+        if target in self._account_ssh_key_materials():
+            return
+        try:
+            self.sdk.create_ssh_key(ssh_key=public_key)
+        except Exception as exc:
+            try:
+                if target in self._account_ssh_key_materials():
+                    return
+            except VastError:
+                pass
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            if status == 401:
+                raise VastError("Vast API key không hợp lệ hoặc đã hết hiệu lực") from exc
+            if status == 403:
+                raise VastError("Vast API key cần quyền user_write để đăng ký SSH key") from exc
+            raise VastError(f"Không đăng ký được SSH key với Vast ({type(exc).__name__})") from exc
+        if target not in self._account_ssh_key_materials():
+            raise VastError("Vast chưa xác nhận SSH key đã được đăng ký")
 
     def search_offers(self, min_vram_gb: int, disk_gb: int) -> list[dict[str, Any]]:
         query = (
