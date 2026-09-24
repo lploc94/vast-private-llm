@@ -25,7 +25,7 @@ class VastClient:
             sdk = VastAI(api_key=api_key, quiet=True, retry=1)
         self.sdk = sdk
 
-    def _account_ssh_key_materials(self) -> set[tuple[str, bytes]]:
+    def _account_ssh_keys(self) -> list[dict[str, Any]]:
         try:
             rows = self.sdk.show_ssh_keys()
         except Exception as exc:
@@ -37,8 +37,11 @@ class VastClient:
             raise VastError(f"Không đọc được SSH keys từ Vast ({type(exc).__name__})") from exc
         if not isinstance(rows, list):
             raise VastError("Vast không trả danh sách SSH keys hợp lệ")
+        return rows
+
+    def _account_ssh_key_materials(self) -> set[tuple[str, bytes]]:
         materials: set[tuple[str, bytes]] = set()
-        for row in rows:
+        for row in self._account_ssh_keys():
             if not isinstance(row, dict) or not isinstance(row.get("public_key"), str):
                 raise VastError("Vast trả SSH key không hợp lệ")
             try:
@@ -67,6 +70,50 @@ class VastClient:
             raise VastError(f"Không đăng ký được SSH key với Vast ({type(exc).__name__})") from exc
         if target not in self._account_ssh_key_materials():
             raise VastError("Vast chưa xác nhận SSH key đã được đăng ký")
+
+    def matching_ssh_key_id(self, public_key: str) -> int | None:
+        target = public_key_material(public_key)
+        matches: list[int] = []
+        for row in self._account_ssh_keys():
+            if not isinstance(row, dict) or not isinstance(row.get("public_key"), str):
+                raise VastError("Vast trả SSH key không hợp lệ")
+            try:
+                material = public_key_material(row["public_key"])
+            except SSHKeyError as exc:
+                raise VastError("Vast trả SSH key không hợp lệ") from exc
+            if material != target:
+                continue
+            key_id = row.get("id")
+            if isinstance(key_id, bool) or not isinstance(key_id, int) or key_id <= 0:
+                raise VastError("Vast trả ID SSH key không hợp lệ")
+            matches.append(key_id)
+        if len(matches) > 1:
+            raise VastError("Có nhiều SSH key trùng nhau trên Vast; hãy kiểm tra thủ công")
+        return matches[0] if matches else None
+
+    def revoke_ssh_key(self, public_key: str) -> None:
+        key_id = self.matching_ssh_key_id(public_key)
+        if key_id is None:
+            raise VastError("Không thấy SSH key trong tài khoản Vast hiện tại; kiểm tra API key")
+        delete_error: Exception | None = None
+        try:
+            self.sdk.delete_ssh_key(id=key_id)
+        except Exception as exc:
+            delete_error = exc
+        try:
+            remaining = self.matching_ssh_key_id(public_key)
+        except VastError as exc:
+            raise VastError("Chưa xác nhận được SSH key đã bị gỡ khỏi Vast; file local được giữ lại") from exc
+        if remaining is None:
+            return
+        if delete_error is not None:
+            status = getattr(getattr(delete_error, "response", None), "status_code", None)
+            if status == 401:
+                raise VastError("Vast API key không hợp lệ hoặc đã hết hiệu lực") from delete_error
+            if status == 403:
+                raise VastError("Vast API key cần quyền user_write để gỡ SSH key") from delete_error
+            raise VastError(f"Không gỡ được SSH key khỏi Vast ({type(delete_error).__name__})") from delete_error
+        raise VastError("Vast chưa xác nhận SSH key đã bị gỡ; file local được giữ lại")
 
     def search_offers(self, min_vram_gb: int, disk_gb: int) -> list[dict[str, Any]]:
         query = (

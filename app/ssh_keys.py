@@ -135,3 +135,33 @@ class SSHKeyManager:
         finally:
             if os.path.lexists(temporary):
                 shutil.rmtree(temporary)
+
+    def managed_identity(self) -> SSHIdentity | None:
+        if self.override_path is not None:
+            raise SSHKeyError("SSH key tùy chỉnh không do ứng dụng quản lý")
+        if not os.path.lexists(self.managed_dir):
+            return None
+        try:
+            info = self.managed_dir.lstat()
+        except OSError as exc:
+            raise SSHKeyError("Không đọc được thư mục SSH key") from exc
+        if not stat.S_ISDIR(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o700:
+            raise SSHKeyError("Thư mục SSH key không an toàn; cần quyền 0700")
+        return self._read_pair(self.managed_path, managed=True)
+
+    def remove_managed_key(self, expected_public_key: str) -> None:
+        identity = self.managed_identity()
+        if identity is None:
+            raise SSHKeyError("Không còn SSH key do ứng dụng quản lý")
+        if public_key_material(identity.public_key) != public_key_material(expected_public_key):
+            raise SSHKeyError("SSH key local đã thay đổi; chưa xóa file")
+        public_path = Path(f"{self.managed_path}.pub")
+        try:
+            names = {entry.name for entry in self.managed_dir.iterdir()}
+            if names != {self.managed_path.name, public_path.name}:
+                raise SSHKeyError("Thư mục SSH key có file khác; chưa xóa file")
+            self.managed_path.unlink()
+            public_path.unlink()
+            self.managed_dir.rmdir()
+        except OSError as exc:
+            raise SSHKeyError("Vast đã gỡ SSH key nhưng chưa xóa hết file local") from exc
